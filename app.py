@@ -195,7 +195,7 @@ def login():
 
     dados = request.json
 
-    identificador = dados["duq"]
+    identificador = dados["duq"]  # email ou cpf
     senha = dados["password"]
     cargo = dados["cargo"]
 
@@ -211,7 +211,7 @@ def login():
             additional_claims={
                 "nome": user.nome,
                 "cargo": user.cargo,
-                "email": user.email
+                "foto": user.foto
             }
         )
 
