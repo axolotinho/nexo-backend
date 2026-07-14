@@ -48,7 +48,7 @@ class Kanban(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
-    color = db.Column(db.String(100), nullable=False, unique=True)
+    color = db.Column(db.String(100), nullable=False)
 
     cards = db.relationship("Card", backref="kanban", lazy=True)
 
