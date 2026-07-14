@@ -28,20 +28,35 @@ db = SQLAlchemy(app)
 # MODEL
 # ==============================
 
+from datetime import time
+
 class Usuario(db.Model):
     __tablename__ = "usuarios"
 
     id = db.Column(db.Integer, primary_key=True)
-    duq = db.Column(db.String(100), nullable=False, unique=True)
+
+    nome = db.Column(db.String(100), nullable=False)
+    cpf = db.Column(db.String(14), nullable=False, unique=True)
+    email = db.Column(db.String(150), nullable=False, unique=True)
     password = db.Column(db.String(255), nullable=False)
     cargo = db.Column(db.String(20), nullable=False)
+
+    foto = db.Column(db.String(255))
+    idade = db.Column(db.Integer)
+    hora_entrada = db.Column(db.Time)
+    hora_saida = db.Column(db.Time)
 
     def to_dict(self):
         return {
             "id": self.id,
-            "duq": self.duq,
-            "password": self.password,
+            "nome": self.nome,
+            "cpf": self.cpf,
+            "email": self.email,
             "cargo": self.cargo,
+            "foto": self.foto,
+            "idade": self.idade,
+            "hora_entrada": self.hora_entrada.strftime("%H:%M") if self.hora_entrada else None,
+            "hora_saida": self.hora_saida.strftime("%H:%M") if self.hora_saida else None,
         }
 
 
