@@ -3,6 +3,7 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, create_access_token
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 import os
 app = Flask(__name__)
 
@@ -43,6 +44,7 @@ class Usuario(db.Model):
             "cargo": self.cargo,
         }
 
+
 class Kanban(db.Model):
     __tablename__ = "kanban"
 
@@ -50,7 +52,12 @@ class Kanban(db.Model):
     name = db.Column(db.String(100), nullable=False, unique=True)
     color = db.Column(db.String(100), nullable=False)
 
-    cards = db.relationship("Card", backref="kanban", lazy=True)
+    cards = db.relationship(
+        "Card",
+        backref="kanban",
+        lazy=True,
+        cascade="all, delete-orphan"
+    )
 
     def to_dict(self):
         return {
@@ -59,14 +66,24 @@ class Kanban(db.Model):
             "color": self.color,
         }
 
+
+# Relação muitos-para-muitos entre Card e Usuario
 card_responsavel = db.Table(
     "card_responsavel",
-    db.Column("card_id", db.Integer, db.ForeignKey("card.id"), primary_key=True),
-    db.Column("user_id", db.Integer, db.ForeignKey("usuarios.id"), primary_key=True)
+    db.Column(
+        "card_id",
+        db.Integer,
+        db.ForeignKey("card.id"),
+        primary_key=True
+    ),
+    db.Column(
+        "usuario_id",
+        db.Integer,
+        db.ForeignKey("usuarios.id"),
+        primary_key=True
+    )
 )
 
-
-from datetime import datetime
 
 class Card(db.Model):
     __tablename__ = "card"
@@ -75,38 +92,42 @@ class Card(db.Model):
 
     title = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=False)
-
     progress = db.Column(db.Integer, nullable=False, default=0)
 
-    due_date = db.Column(db.DateTime, nullable=True)
+    # Prazo
+    due_date = db.Column(db.DateTime)
 
+    # Níveis de 1 a 5
     difficulty = db.Column(db.Integer, nullable=False, default=1)
-
     workload = db.Column(db.Integer, nullable=False, default=1)
 
+    # URLs das imagens e arquivos
     images = db.Column(db.ARRAY(db.String), nullable=False, default=list)
-
     files = db.Column(db.ARRAY(db.String), nullable=False, default=list)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Data de criação
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
+    # Quem criou
     created_by_id = db.Column(
         db.Integer,
-        db.ForeignKey("user.id"),
+        db.ForeignKey("usuarios.id"),
         nullable=False
     )
 
     created_by = db.relationship(
-        "User",
+        "Usuario",
         foreign_keys=[created_by_id]
     )
 
+    # Responsáveis
     responsaveis = db.relationship(
-        "User",
+        "Usuario",
         secondary=card_responsavel,
-        backref="cards"
+        backref=db.backref("cards", lazy=True)
     )
 
+    # Coluna do Kanban
     kanban_id = db.Column(
         db.Integer,
         db.ForeignKey("kanban.id"),
@@ -125,8 +146,8 @@ class Card(db.Model):
             "images": self.images,
             "files": self.files,
             "created_at": self.created_at.isoformat(),
-            "created_by": self.created_by.nome,
-            "responsaveis": [user.nome for user in self.responsaveis],
+            "created_by": self.created_by.to_dict() if self.created_by else None,
+            "responsaveis": [usuario.to_dict() for usuario in self.responsaveis],
             "kanban_id": self.kanban_id,
         }
 
