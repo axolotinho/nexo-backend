@@ -43,6 +43,45 @@ class Usuario(db.Model):
             "cargo": self.cargo,
         }
 
+class Kanban(db.Model):
+    __tablename__ = "kanban"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+
+    cards = db.relationship("Card", backref="kanban", lazy=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+        }
+
+class Card(db.Model):
+    __tablename__ = "card"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(100), nullable=False)
+    progress = db.Column(db.Integer, nullable=False)
+    responsavel = db.Column(db.String(100), nullable=False)
+
+    kanban_id = db.Column(
+        db.Integer,
+        db.ForeignKey("kanban.id"),
+        nullable=False
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "progress": self.progress,
+            "responsavel": self.responsavel,
+            "kanban_id": self.kanban_id,
+        }
 
 # ==============================
 # ROTAS
@@ -115,6 +154,16 @@ def login():
         "erro": "Falha na autenticação"
     }, 401
 
+@app.route("/kanban", methods=["GET"])
+def get_kanban():
+    kanbans = Kanban.query.all()
+    return [k.to_dict() for k in kanbans]
+
+
+@app.route("/card", methods=["GET"])
+def get_card():
+    cards = Card.query.all()
+    return [c.to_dict() for c in cards]
 
 # ==============================
 # INICIAR APP
