@@ -174,16 +174,6 @@ def get_card():
 with app.app_context():
     db.create_all()
 
-    if Kanban.query.count() == 0:
-        kanbans = [
-            Kanban(name="A Fazer", color="#780000"),
-            Kanban(name="Em Andamento", color="#fdf0d5"),
-            Kanban(name="Concluído", color="#669bbc")
-        ]
-
-        db.session.add_all(kanbans)
-        db.session.commit()
-
 
 if __name__ == "__main__":
 
