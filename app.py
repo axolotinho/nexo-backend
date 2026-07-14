@@ -170,26 +170,6 @@ class Card(db.Model):
 # ROTAS
 # ==============================
 
-@app.route("/create-user")
-def form():
-
-    return """
-    <form method="POST">
-
-        <input name="duq" placeholder="Email ou CPF">
-
-        <input name="password" placeholder="Senha">
-
-        <select name="cargo">
-            <option value="G">Gestor</option>
-            <option value="F">Funcionário</option>
-        </select>
-
-        <button>Criar</button>
-
-    </form>
-    """
-
 @app.route("/create-user", methods=["POST"])
 def create_user():
 
@@ -201,7 +181,6 @@ def create_user():
         return "Usuário já existe."
 
     usuario = Usuario(
-        duq=duq,
         password=generate_password_hash(senha),
         cargo=cargo
     )
@@ -216,22 +195,29 @@ def login():
 
     dados = request.json
 
-    duq = dados["duq"]
+    identificador = dados["duq"]
     senha = dados["password"]
     cargo = dados["cargo"]
 
-    user = Usuario.query.filter_by(duq=duq).first()
+    user = Usuario.query.filter(
+        (Usuario.email == identificador) |
+        (Usuario.cpf == identificador)
+    ).first()
 
     if user and check_password_hash(user.password, senha) and user.cargo == cargo:
 
         token = create_access_token(
-            identity=user.id
+            identity=str(user.id),
+            additional_claims={
+                "nome": user.nome,
+                "cargo": user.cargo,
+                "email": user.email
+            }
         )
 
         return {
             "token": token
         }, 200
-
 
     return {
         "erro": "Falha na autenticação"
