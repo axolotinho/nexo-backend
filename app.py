@@ -1,7 +1,8 @@
 from flask import Flask, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import JWTManager, create_access_token
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
 app = Flask(__name__)
 
@@ -31,8 +32,8 @@ class Usuario(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     duq = db.Column(db.String(100), nullable=False, unique=True)
-    password = db.Column(db.Integer, nullable=False)
-    cargo = db.Column(db.Integer, nullable=False)
+    password = db.Column(db.String(String(255), nullable=False)
+    cargo = db.Column(db.String(20), nullable=False)
 
     def to_dict(self):
         return {
@@ -47,7 +48,46 @@ class Usuario(db.Model):
 # ROTAS
 # ==============================
 
-from flask_jwt_extended import create_access_token
+@app.route("/create-user")
+def form():
+
+    return """
+    <form method="POST">
+
+        <input name="duq" placeholder="Email ou CPF">
+
+        <input name="password" placeholder="Senha">
+
+        <select name="cargo">
+            <option value="G">Gestor</option>
+            <option value="F">Funcionário</option>
+        </select>
+
+        <button>Criar</button>
+
+    </form>
+    """
+
+@app.route("/create-user", methods=["POST"])
+def create_user():
+
+    duq = request.form["duq"]
+    senha = request.form["password"]
+    cargo = request.form["cargo"]
+
+    if Usuario.query.filter_by(duq=duq).first():
+        return "Usuário já existe."
+
+    usuario = Usuario(
+        duq=duq,
+        password=generate_password_hash(senha),
+        cargo=cargo
+    )
+
+    db.session.add(usuario)
+    db.session.commit()
+
+    return "Usuário criado com sucesso!"
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -60,7 +100,7 @@ def login():
 
     user = Usuario.query.filter_by(duq=duq).first()
 
-    if user and user.password == senha and user.cargo == cargo:
+    if user and check_password_hash(user.password, senha) and user.cargo == cargo:
 
         token = create_access_token(
             identity=user.id
