@@ -59,15 +59,53 @@ class Kanban(db.Model):
             "color": self.color,
         }
 
+card_responsavel = db.Table(
+    "card_responsavel",
+    db.Column("card_id", db.Integer, db.ForeignKey("card.id"), primary_key=True),
+    db.Column("user_id", db.Integer, db.ForeignKey("usuarios.id"), primary_key=True)
+)
+
+
+from datetime import datetime
+
 class Card(db.Model):
     __tablename__ = "card"
 
     id = db.Column(db.Integer, primary_key=True)
 
     title = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.String(100), nullable=False)
-    progress = db.Column(db.Integer, nullable=False)
-    responsavel = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+
+    progress = db.Column(db.Integer, nullable=False, default=0)
+
+    due_date = db.Column(db.DateTime, nullable=True)
+
+    difficulty = db.Column(db.Integer, nullable=False, default=1)
+
+    workload = db.Column(db.Integer, nullable=False, default=1)
+
+    images = db.Column(db.ARRAY(db.String), nullable=False, default=list)
+
+    files = db.Column(db.ARRAY(db.String), nullable=False, default=list)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    created_by_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False
+    )
+
+    created_by = db.relationship(
+        "User",
+        foreign_keys=[created_by_id]
+    )
+
+    responsaveis = db.relationship(
+        "User",
+        secondary=card_responsavel,
+        backref="cards"
+    )
 
     kanban_id = db.Column(
         db.Integer,
@@ -81,7 +119,14 @@ class Card(db.Model):
             "title": self.title,
             "description": self.description,
             "progress": self.progress,
-            "responsavel": self.responsavel,
+            "due_date": self.due_date.isoformat() if self.due_date else None,
+            "difficulty": self.difficulty,
+            "workload": self.workload,
+            "images": self.images,
+            "files": self.files,
+            "created_at": self.created_at.isoformat(),
+            "created_by": self.created_by.nome,
+            "responsaveis": [user.nome for user in self.responsaveis],
             "kanban_id": self.kanban_id,
         }
 
