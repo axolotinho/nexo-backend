@@ -334,6 +334,14 @@ def login():
 
     return {"token": token}, 200
 
+@app.route("/usuario", methods=["GET"])
+def get_usuarios():
+    try:
+        usuarios = Usuario.query.all()
+        return [u.to_dict() for u in usuarios], 200
+    except Exception as e:
+        return {"erro": f"Erro ao buscar usuários: {str(e)}"}, 500
+
 @app.route("/kanban", methods=["GET"])
 def get_kanban():
     kanbans = Kanban.query.all()
