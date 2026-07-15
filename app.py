@@ -5,6 +5,7 @@ from flask_jwt_extended import jwt_required, JWTManager, create_access_token, ge
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, time
 from supabase import create_client
+from sqlalchemy.orm.attributes import flag_modified
 import traceback
 import uuid
 import os
@@ -448,9 +449,6 @@ def set_card():
         return {"erro": f"Erro interno ao salvar o card: {str(e)}"}, 500
 
 
-# ==============================
-# NOVA ROTA: ATUALIZAR CARD COMPLETO (SOLUCIONA ERRO 405)
-# ==============================
 
 @app.route("/card/<int:card_id>", methods=["PUT"])
 def update_card_full(card_id):
@@ -483,17 +481,19 @@ def update_card_full(card_id):
         if novos_documentos_enviados and any(f.filename != '' for f in novos_documentos_enviados):
             urls_documentos_novos = upload_arquivos_supabase(novos_documentos_enviados, pasta_bucket="cards")
 
-        # Acumula as novas mídias tratando valores nulos com segurança
+        # Acumula as novas mídias tratando valores nulos/vazios com segurança
         imagens_atuais = list(card.images) if card.images else []
         arquivos_atuais = list(card.files) if card.files else []
 
         if urls_imagens_novas:
             card.images = imagens_atuais + urls_imagens_novas
-            db.session.flag_modified(card, "images") # Força o SQLAlchemy a registrar a alteração no array
+            # Correção da linha que causou o Erro 500:
+            flag_modified(card, "images") 
 
         if urls_documentos_novos:
             card.files = arquivos_atuais + urls_documentos_novos
-            db.session.flag_modified(card, "files")
+            # Correção da linha que causou o Erro 500:
+            flag_modified(card, "files")
 
         db.session.commit()
         return card.to_dict(), 200
@@ -503,10 +503,6 @@ def update_card_full(card_id):
         traceback.print_exc()
         return {"erro": f"Erro interno ao atualizar card: {str(e)}"}, 500
 
-
-# ==============================
-# NOVA ROTA: EXCLUIR CARD / CONCLUIR ATIVIDADE
-# ==============================
 
 @app.route("/card/<int:card_id>", methods=["DELETE"])
 def delete_card(card_id):
@@ -526,10 +522,6 @@ def delete_card(card_id):
         db.session.rollback()
         return {"erro": f"Erro ao deletar card: {str(e)}"}, 500
 
-
-# ==============================
-# ROTA: ADICIONAR/SINALIZAR TEMPO GASTO
-# ==============================
 
 @app.route("/card/<int:card_id>/adicionar-tempo", methods=["POST"])
 def adicionar_tempo_card(card_id):
