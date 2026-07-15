@@ -181,24 +181,24 @@ class Card(db.Model):
 # ==============================
 
 def upload_foto_supabase(foto):
-
     nome_arquivo = f"{uuid.uuid4()}-{foto.filename}"
 
-    arquivo = foto.read()
+    # .read() lê os bytes do arquivo enviado pelo Flask
+    arquivo_bytes = foto.read()
 
+    # Faz o upload enviando os bytes brutos
     supabase.storage.from_("usuarios").upload(
-        nome_arquivo,
-        arquivo,
-        {
+        file=arquivo_bytes,
+        path=nome_arquivo,
+        file_options={
             "content-type": foto.content_type
         }
     )
 
-    url = supabase.storage.from_("usuarios").get_public_url(
-        nome_arquivo
-    )
+    # Retorna a URL pública
+    url_data = supabase.storage.from_("usuarios").get_public_url(nome_arquivo)
 
-    return url
+    return url_data
 
 # ==============================
 # ROTAS
