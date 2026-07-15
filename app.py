@@ -375,7 +375,6 @@ def get_card():
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 @app.route("/card", methods=["POST"])
-@jwt_required() # Mantendo o decorator ativo
 def set_card():
     print("\n=== [DEBUG] NOVA REQUISIÇÃO RECEBIDA EM /card ===")
     
