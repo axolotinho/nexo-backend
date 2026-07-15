@@ -200,6 +200,32 @@ def upload_foto_supabase(foto):
 
     return url_data
 
+def upload_arquivos_supabase(arquivos, pasta_bucket="cards"):
+    urls_geradas = []
+    
+    for arquivo in arquivos:
+        if not arquivo or arquivo.filename == '':
+            continue
+            
+        # Gera um nome único para evitar colisões de arquivos com o mesmo nome
+        nome_arquivo = f"{uuid.uuid4()}-{arquivo.filename}"
+        arquivo_bytes = arquivo.read()
+
+        # Faz o upload para o bucket configurado (ex: "cards")
+        supabase.storage.from_(pasta_bucket).upload(
+            file=arquivo_bytes,
+            path=nome_arquivo,
+            file_options={
+                "content-type": arquivo.content_type
+            }
+        )
+
+        # Busca a URL pública do arquivo recém-salvo
+        url_data = supabase.storage.from_(pasta_bucket).get_public_url(nome_arquivo)
+        urls_geradas.append(url_data)
+        
+    return urls_geradas
+
 # ==============================
 # ROTAS
 # ==============================
@@ -316,11 +342,106 @@ def get_kanban():
     kanbans = Kanban.query.all()
     return [k.to_dict() for k in kanbans]
 
+@app.route("/kanban", methods=["POST"])
+def set_kanban():
+    dados = request.json
+    
+    if not dados:
+        return {"erro": "Dados não enviados."}, 400
+
+    nome = dados.get("name")
+    cor = dados.get("color")
+
+    if not nome or not cor:
+        return {"erro": "Nome e cor são campos obrigatórios."}, 400
+
+    kanban_existente = Kanban.query.filter_by(name=nome).first()
+    if kanban_existente:
+        return {"erro": f"Já existe uma coluna Kanban com o nome '{nome}'."}, 400
+
+    try:
+        novo_kanban = Kanban(name=nome, color=cor)
+        
+        db.session.add(novo_kanban)
+        db.session.commit()
+
+        return novo_kanban.to_dict(), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return {"erro": f"Erro ao salvar no banco de dados: {str(e)}"}, 500
 
 @app.route("/card", methods=["GET"])
 def get_card():
     cards = Card.query.all()
     return [c.to_dict() for c in cards]
+
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
+@app.route("/card", methods=["POST"])
+def set_card():
+    try:
+        criador_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return {"erro": "Usuário criador inválido ou não autenticado."}, 401
+
+    title = request.form.get("title")
+    description = request.form.get("description")
+    kanban_id = request.form.get("kanban_id")
+
+    if not title or not description or not kanban_id:
+        return {"erro": "Título, descrição e ID do Kanban são obrigatórios."}, 400
+
+    progress = int(request.form.get("progress", 0))
+    difficulty = int(request.form.get("difficulty", 1))
+    workload = int(request.form.get("workload", 1))
+
+
+    due_date_str = request.form.get("due_date")
+    due_date = None
+    if due_date_str:
+        try:
+            if "T" in due_date_str:
+                due_date = datetime.strptime(due_date_str.split(".")[0], "%Y-%m-%dT%H:%M:%S")
+            else:
+                due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
+        except ValueError:
+            return {"erro": "Formato de data inválido. Use YYYY-MM-DD."}, 400
+
+    responsaveis_ids = request.form.getlist("responsaveis")
+    usuarios_responsaveis = []
+    if responsaveis_ids:
+        usuarios_responsaveis = Usuario.query.filter(Usuario.id.in_(responsaveis_ids)).all()
+
+    imagens_enviadas = request.files.getlist("images")
+    documentos_enviados = request.files.getlist("files")
+
+    urls_imagens = upload_arquivos_supabase(imagens_enviadas, pasta_bucket="cards")
+    urls_documentos = upload_arquivos_supabase(documentos_enviados, pasta_bucket="cards")
+
+    try:
+        novo_card = Card(
+            title=title,
+            description=description,
+            progress=progress,
+            due_date=due_date,
+            difficulty=difficulty,
+            workload=workload,
+            images=urls_imagens,     
+            files=urls_documentos,   
+            created_by_id=criador_id,
+            kanban_id=int(kanban_id),
+            responsaveis=usuarios_responsaveis
+        )
+
+        db.session.add(novo_card)
+        db.session.commit()
+
+        return novo_card.to_dict(), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return {"erro": f"Erro ao criar o card: {str(e)}"}, 500
 
 # ==============================
 # INICIAR APP
