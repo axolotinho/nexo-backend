@@ -455,7 +455,7 @@ def set_card():
 @app.route("/card/<int:card_id>", methods=["PUT"])
 def update_card_full(card_id):
     """
-    Atualiza o progresso do card e faz upload de novos anexos (acumulando-os aos antigos).
+    Atualiza o progresso do card e faz upload de novos anexos (acumulando-os aos antigos com segurança).
     """
     try:
         card = Card.query.get(card_id)
@@ -483,13 +483,16 @@ def update_card_full(card_id):
         if novos_documentos_enviados and any(f.filename != '' for f in novos_documentos_enviados):
             urls_documentos_novos = upload_arquivos_supabase(novos_documentos_enviados, pasta_bucket="cards")
 
-        # Acumula as novas mídias nas listas originais
+        # Acumula as novas mídias tratando valores nulos com segurança
+        imagens_atuais = list(card.images) if card.images else []
+        arquivos_atuais = list(card.files) if card.files else []
+
         if urls_imagens_novas:
-            card.images = card.images + urls_imagens_novas if card.images else urls_imagens_novas
+            card.images = imagens_atuais + urls_imagens_novas
             db.session.flag_modified(card, "images") # Força o SQLAlchemy a registrar a alteração no array
 
         if urls_documentos_novos:
-            card.files = card.files + urls_documentos_novos if card.files else urls_documentos_novos
+            card.files = arquivos_atuais + urls_documentos_novos
             db.session.flag_modified(card, "files")
 
         db.session.commit()
