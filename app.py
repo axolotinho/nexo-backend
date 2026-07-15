@@ -365,7 +365,6 @@ def get_card():
 
 
 @app.route("/card", methods=["POST"])
-@jwt_required()
 def set_card():
     print("\n=== [DEBUG] NOVA REQUISIÇÃO RECEBIDA EM /card ===")
     
@@ -460,7 +459,6 @@ def set_card():
 # ==============================
 
 @app.route("/card/<int:card_id>/adicionar-tempo", methods=["POST"])
-@jwt_required()
 def adicionar_tempo_card(card_id):
     """
     Adiciona tempo trabalhado em segundos a um responsável específico de um card.
