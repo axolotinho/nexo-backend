@@ -1,7 +1,7 @@
 from flask import Flask, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, create_access_token
+from flask_jwt_extended import jwt_required,JWTManager, create_access_token
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from supabase import create_client
@@ -300,7 +300,6 @@ def create_user():
 @app.route("/login", methods=["POST"])
 def login():
     dados = request.json
-    print(f"DEBUG LOGIN - Dados recebidos: {dados}") # Verifique se chegou tudo certo
 
     identificador = dados.get("duq")
     senha = dados.get("password")
@@ -313,16 +312,13 @@ def login():
     ).first()
 
     if not user:
-        print("DEBUG LOGIN FALHOU: Usuário não encontrado no banco com este email/CPF.")
         return {"erro": "Falha na autenticação"}, 401
 
     senha_valida = check_password_hash(user.password, senha)
     if not senha_valida:
-        print("DEBUG LOGIN FALHOU: Senha incorreta.")
         return {"erro": "Falha na autenticação"}, 401
 
     if user.cargo != cargo:
-        print(f"DEBUG LOGIN FALHOU: Cargo incorreto. Banco: '{user.cargo}' | Recebido: '{cargo}'")
         return {"erro": "Falha na autenticação"}, 401
 
     # Se passou por tudo, gera o token
@@ -379,25 +375,38 @@ def get_card():
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 @app.route("/card", methods=["POST"])
+@jwt_required() # Mantendo o decorator ativo
 def set_card():
+    print("\n=== [DEBUG] NOVA REQUISIÇÃO RECEBIDA EM /card ===")
+    
+    # 1. Verificar Identidade do JWT
     try:
-        criador_id = int(get_jwt_identity())
-    except (TypeError, ValueError):
-        return {"erro": "Usuário criador inválido ou não autenticado."}, 401
+        identity = get_jwt_identity()
+        print(f"[DEBUG] Identity do Token: {identity} (tipo: {type(identity)})")
+        criador_id = int(identity)
+    except Exception as e:
+        print(f"[DEBUG ERRO 1] Falha ao ler JWT: {str(e)}")
+        return {"erro": f"Usuário criador inválido ou não autenticado: {str(e)}"}, 401
 
+    # 2. Verificar dados do formulário (Textos)
     title = request.form.get("title")
     description = request.form.get("description")
     kanban_id = request.form.get("kanban_id")
+    
+    print(f"[DEBUG] Dados recebidos -> Título: '{title}', Descrição: '{description}', Kanban ID: '{kanban_id}'")
 
     if not title or not description or not kanban_id:
+        print("[DEBUG ERRO 2] Validação falhou: Título, descrição ou kanban_id ausentes.")
         return {"erro": "Título, descrição e ID do Kanban são obrigatórios."}, 400
 
+    # 3. Verificar dados numéricos e datas
     progress = int(request.form.get("progress", 0))
     difficulty = int(request.form.get("difficulty", 1))
     workload = int(request.form.get("workload", 1))
-
-
     due_date_str = request.form.get("due_date")
+    
+    print(f"[DEBUG] Métricas -> Progresso: {progress}%, Dificuldade: {difficulty}, Carga: {workload}, Prazo: {due_date_str}")
+
     due_date = None
     if due_date_str:
         try:
@@ -405,21 +414,48 @@ def set_card():
                 due_date = datetime.strptime(due_date_str.split(".")[0], "%Y-%m-%dT%H:%M:%S")
             else:
                 due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
-        except ValueError:
-            return {"erro": "Formato de data inválido. Use YYYY-MM-DD."}, 400
+            print(f"[DEBUG] Data convertida com sucesso: {due_date}")
+        except ValueError as e:
+            print(f"[DEBUG ERRO 3] Erro ao converter data: {str(e)}")
+            return {"erro": f"Formato de data inválido: {str(e)}"}, 400
 
+    # 4. Verificar responsáveis
     responsaveis_ids = request.form.getlist("responsaveis")
+    print(f"[DEBUG] Responsáveis recebidos (IDs brutos): {responsaveis_ids}")
     usuarios_responsaveis = []
     if responsaveis_ids:
-        usuarios_responsaveis = Usuario.query.filter(Usuario.id.in_(responsaveis_ids)).all()
+        try:
+            usuarios_responsaveis = Usuario.query.filter(Usuario.id.in_(responsaveis_ids)).all()
+            print(f"[DEBUG] Responsáveis encontrados no Banco: {[u.nome for u in usuarios_responsaveis]}")
+        except Exception as e:
+            print(f"[DEBUG ERRO 4] Erro ao buscar responsáveis no banco: {str(e)}")
 
+    # 5. Verificar arquivos para upload
     imagens_enviadas = request.files.getlist("images")
     documentos_enviados = request.files.getlist("files")
+    print(f"[DEBUG] Arquivos recebidos -> Imagens: {len(imagens_enviadas)} arquivos, Docs: {len(documentos_enviados)} arquivos")
 
-    urls_imagens = upload_arquivos_supabase(imagens_enviadas, pasta_bucket="cards")
-    urls_documentos = upload_arquivos_supabase(documentos_enviados, pasta_bucket="cards")
-
+    # Realizar uploads
+    urls_imagens = []
+    urls_documentos = []
     try:
+        if imagens_enviadas and any(f.filename != '' for f in imagens_enviadas):
+            print("[DEBUG] Iniciando upload das imagens para o Supabase...")
+            urls_imagens = upload_arquivos_supabase(imagens_enviadas, pasta_bucket="cards")
+            print(f"[DEBUG] Upload de imagens concluído. URLs: {urls_imagens}")
+            
+        if documentos_enviados and any(f.filename != '' for f in documentos_enviados):
+            print("[DEBUG] Iniciando upload dos documentos para o Supabase...")
+            urls_documentos = upload_arquivos_supabase(documentos_enviados, pasta_bucket="cards")
+            print(f"[DEBUG] Upload de documentos concluído. URLs: {urls_documentos}")
+    except Exception as e:
+        print(f"[DEBUG ERRO 5] Falha crítica no Upload do Supabase: {str(e)}")
+        traceback.print_exc() # Imprime o erro completo com linha e arquivo no terminal do Python
+        return {"erro": f"Falha ao enviar arquivos para o Supabase: {str(e)}"}, 500
+
+    # 6. Salvar tudo no banco de dados local
+    try:
+        print("[DEBUG] Montando objeto Card e tentando commitar no Banco...")
         novo_card = Card(
             title=title,
             description=description,
@@ -436,12 +472,14 @@ def set_card():
 
         db.session.add(novo_card)
         db.session.commit()
-
+        print("[DEBUG] Card criado com sucesso no banco!")
         return novo_card.to_dict(), 201
 
     except Exception as e:
         db.session.rollback()
-        return {"erro": f"Erro ao criar o card: {str(e)}"}, 500
+        print("[DEBUG ERRO CRÍTICO NO COMMIT]")
+        traceback.print_exc() # Mostra exatamente onde o SQLAlchemy falhou
+        return {"erro": f"Erro interno ao salvar o card: {str(e)}"}, 500
 
 # ==============================
 # INICIAR APP
