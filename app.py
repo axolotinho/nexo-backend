@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import jwt_required, JWTManager, create_access_token, get_jwt_identity
@@ -172,11 +172,10 @@ class Card(db.Model):
             "due_date": self.due_date.isoformat() if self.due_date else None,
             "difficulty": self.difficulty,
             "workload": self.workload,
-            "images": self.images,
-            "files": self.files,
+            "images": self.images if self.images else [],
+            "files": self.files if self.files else [],
             "created_at": self.created_at.isoformat(),
             "created_by": self.created_by.to_dict() if self.created_by else None,
-            # Retorna a lista de responsáveis contendo seus respectivos dados e tempo gasto
             "responsaveis": [
                 {
                     **assoc.usuario.to_dict(),
@@ -366,8 +365,6 @@ def get_card():
 
 @app.route("/card", methods=["POST"])
 def set_card():
-    print("\n=== [DEBUG] NOVA REQUISIÇÃO RECEBIDA EM /card ===")
-    
     try:
         identity = get_jwt_identity()
         criador_id = int(identity)
@@ -416,7 +413,6 @@ def set_card():
         return {"erro": f"Falha ao enviar arquivos para o Supabase: {str(e)}"}, 500
 
     try:
-        # Criar o Card inicial sem os relacionamentos diretos de muitos-para-muitos
         novo_card = Card(
             title=title,
             description=description,
@@ -430,14 +426,12 @@ def set_card():
             kanban_id=int(kanban_id)
         )
         db.session.add(novo_card)
-        db.session.flush()  # Garante que o card tenha um ID gerado antes de criar associados
+        db.session.flush()
 
-        # Adicionar os responsáveis iniciando com tempo_gasto = 0
         for usuario in usuarios_responsaveis:
             assoc = CardResponsavel(usuario=usuario, card=novo_card, tempo_gasto=0)
             db.session.add(assoc)
 
-        # Criar o Grupo correspondente usando o título do card e membros responsáveis
         novo_grupo = Grupo(
             nome=title,
             card=novo_card,
@@ -455,15 +449,87 @@ def set_card():
 
 
 # ==============================
-# NOVA ROTA: ADICIONAR/SINALIZAR TEMPO GASTO
+# NOVA ROTA: ATUALIZAR CARD COMPLETO (SOLUCIONA ERRO 405)
+# ==============================
+
+@app.route("/card/<int:card_id>", methods=["PUT"])
+def update_card_full(card_id):
+    """
+    Atualiza o progresso do card e faz upload de novos anexos (acumulando-os aos antigos).
+    """
+    try:
+        card = Card.query.get(card_id)
+        if not card:
+            return {"erro": "Card não encontrado."}, 404
+
+        # 1. Atualizar campos básicos de texto se forem fornecidos no Form Data
+        if "progress" in request.form:
+            card.progress = int(request.form["progress"])
+        if "title" in request.form:
+            card.title = request.form["title"]
+        if "description" in request.form:
+            card.description = request.form["description"]
+
+        # 2. Receber novos arquivos enviados do formulário do React
+        novas_imagens_enviadas = request.files.getlist("images")
+        novos_documentos_enviados = request.files.getlist("files")
+
+        # 3. Fazer upload e adicionar os caminhos mantendo os antigos (Permite múltiplos anexos)
+        urls_imagens_novas = []
+        urls_documentos_novos = []
+
+        if novas_imagens_enviadas and any(f.filename != '' for f in novas_imagens_enviadas):
+            urls_imagens_novas = upload_arquivos_supabase(novas_imagens_enviadas, pasta_bucket="cards")
+        if novos_documentos_enviados and any(f.filename != '' for f in novos_documentos_enviados):
+            urls_documentos_novos = upload_arquivos_supabase(novos_documentos_enviados, pasta_bucket="cards")
+
+        # Acumula as novas mídias nas listas originais
+        if urls_imagens_novas:
+            card.images = card.images + urls_imagens_novas if card.images else urls_imagens_novas
+            db.session.flag_modified(card, "images") # Força o SQLAlchemy a registrar a alteração no array
+
+        if urls_documentos_novos:
+            card.files = card.files + urls_documentos_novos if card.files else urls_documentos_novos
+            db.session.flag_modified(card, "files")
+
+        db.session.commit()
+        return card.to_dict(), 200
+
+    except Exception as e:
+        db.session.rollback()
+        traceback.print_exc()
+        return {"erro": f"Erro interno ao atualizar card: {str(e)}"}, 500
+
+
+# ==============================
+# NOVA ROTA: EXCLUIR CARD / CONCLUIR ATIVIDADE
+# ==============================
+
+@app.route("/card/<int:card_id>", methods=["DELETE"])
+def delete_card(card_id):
+    """
+    Exclui o card e suas relações em cascata associadas.
+    """
+    try:
+        card = Card.query.get(card_id)
+        if not card:
+            return {"erro": "Card não encontrado."}, 404
+
+        db.session.delete(card)
+        db.session.commit()
+        return {"mensagem": "Card excluído/arquivado com sucesso!"}, 200
+
+    except Exception as e:
+        db.session.rollback()
+        return {"erro": f"Erro ao deletar card: {str(e)}"}, 500
+
+
+# ==============================
+# ROTA: ADICIONAR/SINALIZAR TEMPO GASTO
 # ==============================
 
 @app.route("/card/<int:card_id>/adicionar-tempo", methods=["POST"])
 def adicionar_tempo_card(card_id):
-    """
-    Adiciona tempo trabalhado em segundos a um responsável específico de um card.
-    JSON esperado: { "usuario_id": 12, "segundos": 3600 }
-    """
     dados = request.json
     if not dados:
         return {"erro": "Dados não enviados."}, 400
@@ -479,11 +545,9 @@ def adicionar_tempo_card(card_id):
         if not associacao:
             return {"erro": "Este usuário não é responsável por este card."}, 404
 
-        # Incrementa os segundos gastos
         associacao.tempo_gasto += int(segundos)
         db.session.commit()
 
-        # Retorna o card atualizado
         card = Card.query.get(card_id)
         return card.to_dict(), 200
 
