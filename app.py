@@ -376,6 +376,46 @@ def set_kanban():
         db.session.rollback()
         return {"erro": f"Erro ao salvar no banco de dados: {str(e)}"}, 500
 
+@app.route("/card/<int:card_id>", methods=["PATCH"])
+def update_card_kanban(card_id):
+    dados = request.json
+    novo_kanban_id = dados.get("kanban_id")
+
+    if not novo_kanban_id:
+        return {"erro": "ID do Kanban de destino é obrigatório."}, 400
+
+    try:
+        card_existente = Card.query.get(card_id)
+        if not card_existente:
+            return {"erro": "Card não encontrado."}, 404
+
+        # Opcional: Verificar se o Kanban de destino existe
+        kanban_destino = Kanban.query.get(novo_kanban_id)
+        if not kanban_destino:
+            return {"erro": "Coluna Kanban de destino não existe."}, 404
+
+        card_existente.kanban_id = int(novo_kanban_id)
+        db.session.commit()
+
+        return card_existente.to_dict(), 200
+    except Exception as e:
+        db.session.rollback()
+        return {"erro": f"Erro ao mover o card: {str(e)}"}, 500
+
+@app.route("/kanban/<int:kanban_id>", methods=["DELETE"])
+def delete_kanban(kanban_id):
+    try:
+        coluna = Kanban.query.get(kanban_id)
+        if not coluna:
+            return {"erro": "Coluna Kanban não encontrada."}, 404
+
+        db.session.delete(coluna)
+        db.session.commit()
+        return {"mensagem": "Coluna excluída com sucesso!"}, 200
+    except Exception as e:
+        db.session.rollback()
+        return {"erro": f"Erro ao deletar coluna: {str(e)}"}, 500
+
 @app.route("/card", methods=["GET"])
 def get_card():
     cards = Card.query.all()
