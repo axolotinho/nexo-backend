@@ -273,36 +273,43 @@ def create_user():
 
 @app.route("/login", methods=["POST"])
 def login():
-
     dados = request.json
+    print(f"DEBUG LOGIN - Dados recebidos: {dados}") # Verifique se chegou tudo certo
 
-    identificador = dados["duq"]  # email ou cpf
-    senha = dados["password"]
-    cargo = dados["cargo"]
+    identificador = dados.get("duq")
+    senha = dados.get("password")
+    cargo = dados.get("cargo")
 
+    # Busca o usuário
     user = Usuario.query.filter(
         (Usuario.email == identificador) |
         (Usuario.cpf == identificador)
     ).first()
 
-    if user and check_password_hash(user.password, senha) and user.cargo == cargo:
+    if not user:
+        print("DEBUG LOGIN FALHOU: Usuário não encontrado no banco com este email/CPF.")
+        return {"erro": "Falha na autenticação"}, 401
 
-        token = create_access_token(
-            identity=str(user.id),
-            additional_claims={
-                "nome": user.nome,
-                "cargo": user.cargo,
-                "foto": user.foto
-            }
-        )
+    senha_valida = check_password_hash(user.password, senha)
+    if not senha_valida:
+        print("DEBUG LOGIN FALHOU: Senha incorreta.")
+        return {"erro": "Falha na autenticação"}, 401
 
-        return {
-            "token": token
-        }, 200
+    if user.cargo != cargo:
+        print(f"DEBUG LOGIN FALHOU: Cargo incorreto. Banco: '{user.cargo}' | Recebido: '{cargo}'")
+        return {"erro": "Falha na autenticação"}, 401
 
-    return {
-        "erro": "Falha na autenticação"
-    }, 401
+    # Se passou por tudo, gera o token
+    token = create_access_token(
+        identity=str(user.id),
+        additional_claims={
+            "nome": user.nome,
+            "cargo": user.cargo,
+            "foto": user.foto
+        }
+    )
+
+    return {"token": token}, 200
 
 @app.route("/kanban", methods=["GET"])
 def get_kanban():
