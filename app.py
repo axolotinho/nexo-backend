@@ -4,6 +4,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, create_access_token
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from supabase import create_client
+import uuid
 import os
 app = Flask(__name__)
 
@@ -20,6 +22,14 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_KEY")
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY
+)
 
 db = SQLAlchemy(app)
 
@@ -167,28 +177,99 @@ class Card(db.Model):
         }
 
 # ==============================
+# FUNÇÕES
+# ==============================
+
+def upload_foto_supabase(foto):
+
+    nome_arquivo = f"{uuid.uuid4()}-{foto.filename}"
+
+    arquivo = foto.read()
+
+    supabase.storage.from_("usuarios").upload(
+        nome_arquivo,
+        arquivo,
+        {
+            "content-type": foto.content_type
+        }
+    )
+
+    url = supabase.storage.from_("usuarios").get_public_url(
+        nome_arquivo
+    )
+
+    return url
+
+# ==============================
 # ROTAS
 # ==============================
+
+
 
 @app.route("/create-user", methods=["POST"])
 def create_user():
 
-    duq = request.form["duq"]
+    nome = request.form["nome"]
+    cpf = request.form["cpf"]
+    email = request.form["email"]
     senha = request.form["password"]
     cargo = request.form["cargo"]
+    idade = request.form["idade"]
+    hora_entrada = request.form["hora_entrada"]
+    hora_saida = request.form["hora_saida"]
 
-    if Usuario.query.filter_by(duq=duq).first():
-        return "Usuário já existe."
+    foto = request.files.get("foto")
+
+
+    # verifica se já existe
+    if Usuario.query.filter(
+        (Usuario.cpf == cpf) |
+        (Usuario.email == email)
+    ).first():
+
+        return {
+            "erro": "Usuário já existe."
+        }, 400
+
+
+    foto_url = None
+
+    if foto:
+        foto_url = upload_foto_supabase(foto)
+
+
 
     usuario = Usuario(
+
+        nome=nome,
+
+        cpf=cpf,
+
+        email=email,
+
         password=generate_password_hash(senha),
-        cargo=cargo
+
+        cargo=cargo,
+
+        idade=idade,
+
+        hora_entrada=hora_entrada,
+
+        hora_saida=hora_saida,
+
+        foto=foto_url
+
     )
 
+
     db.session.add(usuario)
+
     db.session.commit()
 
-    return "Usuário criado com sucesso!"
+
+    return {
+        "mensagem": "Usuário criado com sucesso!"
+    }, 201
 
 @app.route("/login", methods=["POST"])
 def login():
