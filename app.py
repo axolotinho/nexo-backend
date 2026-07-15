@@ -5,6 +5,7 @@ from flask_jwt_extended import jwt_required,JWTManager, create_access_token
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from supabase import create_client
+import traceback
 import uuid
 import os
 app = Flask(__name__)
