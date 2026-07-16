@@ -246,9 +246,9 @@ def conversar_ia():
     ).count()
 
     # Se já estourou o limite de 5 mensagens diárias
-    if envios_usuario >= 5:
+    if envios_usuario >= 20:
         return {
-            "reply": "⚠️ Você atingiu o limite de 5 interações com a IA por hoje. Seu saldo será resetado à meia-noite! Obrigado por testar o Dovely. 🕊️"
+            "reply": "⚠️ Você atingiu o limite de 20 interações com a IA por hoje. Seu saldo será resetado à meia-noite! Obrigado por testar o Dovely. 🕊️"
         }, 200
 
     # Salva a mensagem do usuário no banco
