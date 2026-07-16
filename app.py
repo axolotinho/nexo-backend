@@ -287,8 +287,8 @@ def conversar_ia():
                 "role": "user" if h.sender == "user" else "model",
                 "parts": [{"text": h.texto}]
             })
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={gemini_key}"
         
         response = requests.post(
             url,
