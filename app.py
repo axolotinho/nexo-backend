@@ -354,7 +354,7 @@ def salvar_resposta_ia(usuario_id, texto):
 
 def fallback_respostas_simuladas(texto_usuario):
     msg_lower = texto_usuario.lower()
-    if any(palavra in msg_lower for palabra in ["cansado", "exaurido", "sono", "cansaço"]):
+    if any(palavra in msg_lower for palavra in ["cansado", "exaurido", "sono", "cansaço"]):
         return "Parece que você está bem cansado. Recomendo fazer uma pausa agora! Vá até a janela, respire fundo 3 vezes e beba um copo de água gelada. 💧"
     elif any(palavra in msg_lower for palavra in ["foco", "concentrar", "produtividade", "concentração"]):
         return "Se precisa de foco total, inicie o timer do Método Pomodoro ali ao lado! Vou silenciar notificações imaginárias para você."
