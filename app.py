@@ -590,7 +590,6 @@ def set_card():
 
 
 @app.route("/chat/historico", methods=["GET"])
-@jwt_required()
 def obter_historico_chat():
     try:
         identity = get_jwt_identity()
