@@ -9,6 +9,7 @@ from sqlalchemy.orm.attributes import flag_modified
 import traceback
 import uuid
 import os
+import requests  # Importação unificada no topo
 
 app = Flask(__name__)
 CORS(app)
@@ -30,7 +31,7 @@ db = SQLAlchemy(app)
 
 
 # ==============================
-# MODELOS (MODIFIED)
+# MODELOS
 # ==============================
 
 class Usuario(db.Model):
@@ -114,7 +115,7 @@ class Grupo(db.Model):
         }
 
 
-# Modelo associativo customizado para guardar o tempo que cada usuário leva em cada card
+# Modelo associativo customizado para guardar o tempo de cada usuário em cada card
 class CardResponsavel(db.Model):
     __tablename__ = "card_responsavel"
 
@@ -190,12 +191,9 @@ class Card(db.Model):
             "kanban_id": self.kanban_id,
         }
 
-# ==============================
-# FUNÇÕES SUPABASE
-# ==============================
 
 # ==============================
-# NOVO MODELO: CONTROLE DE HISTÓRICO E REQUISIÇÕES DA IA
+# NOVO MODELO: HISTÓRICO DA IA
 # ==============================
 
 class MensagemChat(db.Model):
@@ -203,7 +201,7 @@ class MensagemChat(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
-    sender = db.Column(db.String(10), nullable=False) # 'user' ou 'ia'
+    sender = db.Column(db.String(10), nullable=False)  # 'user' ou 'ia'
     texto = db.Column(db.Text, nullable=False)
     criado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
@@ -216,10 +214,8 @@ class MensagemChat(db.Model):
 
 
 # ==============================
-# NOVA ROTA: ASSISTENTE DE IA (CONVERSA COM LIMITE DE 5 ENVIOS)
+# ROTA: CONVERSA COM IA (GEMINI OU OPENAI)
 # ==============================
-
-import requests # Certifique-se de importar 'requests' no topo do seu arquivo
 
 @app.route("/chat", methods=["POST"])
 @jwt_required()
@@ -238,71 +234,82 @@ def conversar_ia():
     if not mensagem_usuario:
         return {"erro": "A mensagem não pode estar vazia."}, 400
 
-    # 1. Verificar quantas mensagens o usuário já enviou para a IA
-    envios_usuario = MensagemChat.query.filter_by(usuario_id=usuario_id, sender="user").count()
+    # 1. Definir o início do dia para resetar o limite às 00:00 (UTC)
+    inicio_do_dia = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Se já estourou o limite de 5 mensagens enviadas pelo usuário
+    # 2. Verificar quantas mensagens o usuário enviou HOJE
+    envios_usuario = MensagemChat.query.filter(
+        MensagemChat.usuario_id == usuario_id,
+        MensagemChat.sender == "user",
+        MensagemChat.criado_em >= inicio_do_dia
+    ).count()
+
+    # Se já estourou o limite de 5 mensagens diárias
     if envios_usuario >= 5:
         return {
-            "reply": "⚠️ Você atingiu o limite de 5 interações com a IA neste protótipo de testes. Agradecemos a sua participação e feedback para o desenvolvimento do nosso projeto de bem-estar!"
+            "reply": "⚠️ Você atingiu o limite de 5 interações com a IA por hoje. Seu saldo será resetado à meia-noite! Obrigado por testar o Dovely. 🕊️"
         }, 200
 
-    # Salva a mensagem do usuário no histórico do banco de dados
+    # Salva a mensagem do usuário no banco
     msg_user_db = MensagemChat(usuario_id=usuario_id, sender="user", texto=mensagem_usuario)
     db.session.add(msg_user_db)
     db.session.commit()
 
-    # 2. Buscar o histórico anterior de mensagens do usuário para dar contexto à IA
-    historico_db = MensagemChat.query.filter_by(usuario_id=usuario_id).order_by(MensagemChat.criado_em.asc()).all()
+    # 3. Buscar o histórico de hoje para manter o contexto
+    historico_db = MensagemChat.query.filter(
+        MensagemChat.usuario_id == usuario_id,
+        MensagemChat.criado_em >= inicio_do_dia
+    ).order_by(MensagemChat.criado_em.asc()).all()
+
+    # 4. Tentar chamar a API do Gemini (Gratuita / 1500 RPD)
+    gemini_key = os.getenv("GEMINI_API_KEY")
     
-    mensagens_openai = [
-        {
-            "role": "system",
-            "content": "Você é o Dovely, um assistente ativo focado em saúde mental, ergonomia e bem-estar corporativo. Dê respostas curtas, amigáveis, acolhedoras e diretas (no máximo 3 frases)."
-        }
-    ]
-
-    for h in historico_db:
-        mensagens_openai.append({
-            "role": "user" if h.sender == "user" else "assistant",
-            "content": h.texto
-        })
-
-    # 3. Tentar chamar a API da OpenAI
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        # Se a chave não estiver configurada no seu .env do servidor, cai direto no fallback
+    if not gemini_key:
+        # Fallback se a chave não estiver no .env do Render
         resposta_fallback = fallback_respostas_simuladas(mensagem_usuario)
         salvar_resposta_ia(usuario_id, resposta_fallback)
         return {"reply": resposta_fallback}, 200
 
     try:
+        # Montar o histórico no formato que a API do Gemini exige
+        contents = []
+        # Instrução de sistema inicial
+        contents.append({
+            "role": "user",
+            "parts": [{"text": "Instrução de Sistema: Você é o Dovely, um assistente ativo focado em saúde mental, ergonomia e bem-estar corporativo. Dê respostas curtas, amigáveis, acolhedoras e diretas (no máximo 3 frases)."}]
+        })
+        contents.append({
+            "role": "model",
+            "parts": [{"text": "Entendido! Serei o Dovely, focado em bem-estar corporativo com respostas curtas e acolhedoras."}]
+        })
+
+        for h in historico_db:
+            contents.append({
+                "role": "user" if h.sender == "user" else "model",
+                "parts": [{"text": h.texto}]
+            })
+
+        # Requisição para a API do Gemini (Modelo Flash)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+        
         response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            },
-            json={
-                "model": "gpt-4o-mini",
-                "messages": mensagens_openai,
-                "temperature": 0.7
-            },
-            timeout=10 # limite máximo de espera da API externa
+            url,
+            headers={"Content-Type": "application/json"},
+            json={"contents": contents},
+            timeout=10
         )
 
         if response.status_code != 200:
-            raise Exception("Cota da API estourada ou erro no servidor da OpenAI.")
+            raise Exception(f"Erro na API do Gemini: {response.text}")
 
         dados_retorno = response.json()
-        resposta_ia = dados_retorno["choices"][0]["message"]["content"]
+        resposta_ia = dados_retorno["candidates"][0]["content"]["parts"][0]["text"]
 
     except Exception as e:
-        # 4. Fallback: Se as 20 requisições globais de graça estourarem, usa respostas automáticas
-        print(f"Fallback ativado devido ao erro: {str(e)}")
+        print(f"Erro no Gemini. Ativando fallback: {str(e)}")
         resposta_ia = fallback_respostas_simuladas(mensagem_usuario)
 
-    # Salva a resposta gerada (seja pela IA ou pelo Fallback) no banco
+    # Salva a resposta final no banco e retorna
     salvar_resposta_ia(usuario_id, resposta_ia)
     return {"reply": resposta_ia}, 200
 
@@ -323,7 +330,7 @@ def salvar_resposta_ia(usuario_id, texto):
 
 def fallback_respostas_simuladas(texto_usuario):
     msg_lower = texto_usuario.lower()
-    if any(palavra in msg_lower for palavra in ["cansado", "exaurido", "sono", "cansaço"]):
+    if any(palavra in msg_lower for palabra in ["cansado", "exaurido", "sono", "cansaço"]):
         return "Parece que você está bem cansado. Recomendo fazer uma pausa agora! Vá até a janela, respire fundo 3 vezes e beba um copo de água gelada. 💧"
     elif any(palavra in msg_lower for palavra in ["foco", "concentrar", "produtividade", "concentração"]):
         return "Se precisa de foco total, inicie o timer do Método Pomodoro ali ao lado! Vou silenciar notificações imaginárias para você."
@@ -332,6 +339,9 @@ def fallback_respostas_simuladas(texto_usuario):
     return "Estou aqui para ajudar a equilibrar sua rotina de trabalho. O que acha de fazermos uma pausa rápida para um alongamento?"
 
 
+# ==============================
+# UPLOADS E AUXILIARES
+# ==============================
 
 def upload_foto_supabase(foto):
     nome_arquivo = f"{uuid.uuid4()}-{foto.filename}"
@@ -363,7 +373,7 @@ def upload_arquivos_supabase(arquivos, pasta_bucket="cards"):
 
 
 # ==============================
-# ROTAS
+# ROTAS GERAIS
 # ==============================
 
 @app.route("/create-user", methods=["POST"])
@@ -588,7 +598,6 @@ def set_card():
         return {"erro": f"Erro interno ao salvar o card: {str(e)}"}, 500
 
 
-
 @app.route("/chat/historico", methods=["GET"])
 def obter_historico_chat():
     try:
@@ -596,7 +605,6 @@ def obter_historico_chat():
         usuario_id = int(identity)
         historico = MensagemChat.query.filter_by(usuario_id=usuario_id).order_by(MensagemChat.criado_em.asc()).all()
         
-        # Se o histórico do usuário estiver vazio no banco, devolvemos a primeira de mentirinha padrão
         if not historico:
             return [{
                 "id": 1,
@@ -608,17 +616,14 @@ def obter_historico_chat():
     except Exception as e:
         return {"erro": f"Erro ao recuperar histórico: {str(e)}"}, 500
 
+
 @app.route("/card/<int:card_id>", methods=["PUT"])
 def update_card_full(card_id):
-    """
-    Atualiza o progresso do card e faz upload de novos anexos (acumulando-os aos antigos com segurança).
-    """
     try:
         card = Card.query.get(card_id)
         if not card:
             return {"erro": "Card não encontrado."}, 404
 
-        # 1. Atualizar campos básicos de texto se forem fornecidos no Form Data
         if "progress" in request.form:
             card.progress = int(request.form["progress"])
         if "title" in request.form:
@@ -626,11 +631,9 @@ def update_card_full(card_id):
         if "description" in request.form:
             card.description = request.form["description"]
 
-        # 2. Receber novos arquivos enviados do formulário do React
         novas_imagens_enviadas = request.files.getlist("images")
         novos_documentos_enviados = request.files.getlist("files")
 
-        # 3. Fazer upload e adicionar os caminhos mantendo os antigos (Permite múltiplos anexos)
         urls_imagens_novas = []
         urls_documentos_novos = []
 
@@ -639,18 +642,15 @@ def update_card_full(card_id):
         if novos_documentos_enviados and any(f.filename != '' for f in novos_documentos_enviados):
             urls_documentos_novos = upload_arquivos_supabase(novos_documentos_enviados, pasta_bucket="cards")
 
-        # Acumula as novas mídias tratando valores nulos/vazios com segurança
         imagens_atuais = list(card.images) if card.images else []
         arquivos_atuais = list(card.files) if card.files else []
 
         if urls_imagens_novas:
             card.images = imagens_atuais + urls_imagens_novas
-            # Correção da linha que causou o Erro 500:
             flag_modified(card, "images") 
 
         if urls_documentos_novos:
             card.files = arquivos_atuais + urls_documentos_novos
-            # Correção da linha que causou o Erro 500:
             flag_modified(card, "files")
 
         db.session.commit()
@@ -664,9 +664,6 @@ def update_card_full(card_id):
 
 @app.route("/card/<int:card_id>", methods=["DELETE"])
 def delete_card(card_id):
-    """
-    Exclui o card e suas relações em cascata associadas.
-    """
     try:
         card = Card.query.get(card_id)
         if not card:
