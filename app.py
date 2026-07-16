@@ -538,7 +538,17 @@ def get_card():
 
 
 @app.route("/card", methods=["POST"])
+@jwt_required()  # <-- ADICIONADO: Exige token JWT válido para criar um card
 def set_card():
+    try:
+        # Recupera o ID do usuário que está logado e criando o card
+        identity = get_jwt_identity()
+        if not identity:
+            return {"erro": "Token inválido ou ausente."}, 401
+        criador_id = int(identity)  # <-- DEFINIDO: Agora criador_id existe e está correto!
+    except Exception as e:
+        return {"erro": "Usuário não autenticado ou token corrompido."}, 401
+
     title = request.form.get("title")
     description = request.form.get("description")
     kanban_id = request.form.get("kanban_id")
@@ -590,7 +600,7 @@ def set_card():
             workload=workload,
             images=urls_imagens,     
             files=urls_documentos,   
-            created_by_id=criador_id,
+            created_by_id=criador_id,  # <-- Agora o Python sabe exatamente o que é criador_id
             kanban_id=int(kanban_id)
         )
         db.session.add(novo_card)
