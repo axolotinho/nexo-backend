@@ -539,12 +539,6 @@ def get_card():
 
 @app.route("/card", methods=["POST"])
 def set_card():
-    try:
-        identity = get_jwt_identity()
-        criador_id = int(identity)
-    except Exception as e:
-        return {"erro": f"Usuário criador inválido ou não autenticado: {str(e)}"}, 401
-
     title = request.form.get("title")
     description = request.form.get("description")
     kanban_id = request.form.get("kanban_id")
