@@ -212,18 +212,20 @@ class MensagemChat(db.Model):
             "text": self.texto
         }
 
-
 # ==============================
 # ROTA: CONVERSA COM IA (GEMINI OU OPENAI)
 # ==============================
 
 @app.route("/chat", methods=["POST"])
+@jwt_required()  # CORRIGIDO: Adicionado o decorator necessário para ler o JWT
 def conversar_ia():
     try:
         identity = get_jwt_identity()
+        if not identity:
+            return {"erro": "Token inválido ou ausente."}, 401
         usuario_id = int(identity)
     except Exception as e:
-        return {"erro": "Usuário não autenticado."}, 401
+        return {"erro": "Usuário não autenticado ou token corrompido."}, 401
 
     dados = request.json
     if not dados or "message" not in dados:
@@ -264,7 +266,6 @@ def conversar_ia():
     gemini_key = os.getenv("GEMINI_API_KEY")
     
     if not gemini_key:
-        # Fallback se a chave não estiver no .env do Render
         resposta_fallback = fallback_respostas_simuladas(mensagem_usuario)
         salvar_resposta_ia(usuario_id, resposta_fallback)
         return {"reply": resposta_fallback}, 200
@@ -272,7 +273,6 @@ def conversar_ia():
     try:
         # Montar o histórico no formato que a API do Gemini exige
         contents = []
-        # Instrução de sistema inicial
         contents.append({
             "role": "user",
             "parts": [{"text": "Instrução de Sistema: Você é o Dovely, um assistente ativo focado em saúde mental, ergonomia e bem-estar corporativo. Dê respostas curtas, amigáveis, acolhedoras e diretas (no máximo 3 frases)."}]
@@ -288,7 +288,6 @@ def conversar_ia():
                 "parts": [{"text": h.texto}]
             })
 
-        # Requisição para a API do Gemini (Modelo Flash)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
         
         response = requests.post(
@@ -312,6 +311,32 @@ def conversar_ia():
     salvar_resposta_ia(usuario_id, resposta_ia)
     return {"reply": resposta_ia}, 200
 
+
+# ==============================
+# ROTA: HISTÓRICO DO CHAT
+# ==============================
+
+@app.route("/chat/historico", methods=["GET"])
+@jwt_required()  # CORRIGIDO: Adicionado o decorator necessário para ler o JWT
+def obter_historico_chat():
+    try:
+        identity = get_jwt_identity()
+        if not identity:
+            return {"erro": "Token inválido ou ausente."}, 401
+        usuario_id = int(identity)
+        
+        historico = MensagemChat.query.filter_by(usuario_id=usuario_id).order_by(MensagemChat.criado_em.asc()).all()
+        
+        if not historico:
+            return [{
+                "id": 1,
+                "sender": "ia",
+                "text": "Olá! Sou o seu assistente de bem-estar. Como está se sentindo no trabalho hoje? Lembre-se de beber água!"
+            }], 200
+
+        return [h.to_dict() for h in historico], 200
+    except Exception as e:
+        return {"erro": f"Erro ao recuperar histórico: {str(e)}"}, 500
 
 # ==============================
 # FUNÇÕES AUXILIARES DA IA
@@ -595,25 +620,6 @@ def set_card():
         db.session.rollback()
         traceback.print_exc()
         return {"erro": f"Erro interno ao salvar o card: {str(e)}"}, 500
-
-
-@app.route("/chat/historico", methods=["GET"])
-def obter_historico_chat():
-    try:
-        identity = get_jwt_identity()
-        usuario_id = int(identity)
-        historico = MensagemChat.query.filter_by(usuario_id=usuario_id).order_by(MensagemChat.criado_em.asc()).all()
-        
-        if not historico:
-            return [{
-                "id": 1,
-                "sender": "ia",
-                "text": "Olá! Sou o seu assistente de bem-estar. Como está se sentindo no trabalho hoje? Lembre-se de beber água!"
-            }], 200
-
-        return [h.to_dict() for h in historico], 200
-    except Exception as e:
-        return {"erro": f"Erro ao recuperar histórico: {str(e)}"}, 500
 
 
 @app.route("/card/<int:card_id>", methods=["PUT"])
