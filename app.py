@@ -218,7 +218,6 @@ class MensagemChat(db.Model):
 # ==============================
 
 @app.route("/chat", methods=["POST"])
-@jwt_required()
 def conversar_ia():
     try:
         identity = get_jwt_identity()
