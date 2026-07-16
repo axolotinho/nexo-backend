@@ -290,7 +290,7 @@ def conversar_ia():
         url = "https://api.groq.com/openai/v1/chat/completions"
         
         payload = {
-            "model": "llama3-8b-8192",  # Modelo gratuito e extremamente rápido
+            "model": "llama-3.1-8b-instant",  # Modelo atualizado e super rápido!  ✅
             "messages": messages,
             "temperature": 0.7,
             "max_tokens": 150
