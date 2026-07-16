@@ -262,49 +262,58 @@ def conversar_ia():
         MensagemChat.criado_em >= inicio_do_dia
     ).order_by(MensagemChat.criado_em.asc()).all()
 
-    # 4. Tentar chamar a API do Gemini (Gratuita / 1500 RPD)
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    # 4. Tentar chamar a API da Groq (Modelo Llama 3)
+    groq_key = os.getenv("GROQ_API_KEY")
     
-    if not gemini_key:
+    if not groq_key:
         resposta_fallback = fallback_respostas_simuladas(mensagem_usuario)
         salvar_resposta_ia(usuario_id, resposta_fallback)
         return {"reply": resposta_fallback}, 200
 
     try:
-        # Montar o histórico no formato que a API do Gemini exige
-        contents = []
-        contents.append({
-            "role": "user",
-            "parts": [{"text": "Instrução de Sistema: Você é o Dovely, um assistente ativo focado em saúde mental, ergonomia e bem-estar corporativo. Dê respostas curtas, amigáveis, acolhedoras e diretas (no máximo 3 frases)."}]
-        })
-        contents.append({
-            "role": "model",
-            "parts": [{"text": "Entendido! Serei o Dovely, focado em bem-estar corporativo com respostas curtas e acolhedoras."}]
+        # Montar as mensagens no padrão OpenAI/Groq (Muito mais limpo e estável)
+        messages = []
+        
+        # Define a instrução de sistema (Comportamento da IA)
+        messages.append({
+            "role": "system",
+            "content": "Você é o Dovely, um assistente ativo focado em saúde mental, ergonomia e bem-estar corporativo. Dê respostas curtas, amigáveis, acolhedoras e diretas (no máximo 3 frases)."
         })
 
+        # Adiciona o histórico registrado no dia de hoje
         for h in historico_db:
-            contents.append({
-                "role": "user" if h.sender == "user" else "model",
-                "parts": [{"text": h.texto}]
+            messages.append({
+                "role": "user" if h.sender == "user" else "assistant",
+                "content": h.texto
             })
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={gemini_key}"
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        
+        payload = {
+            "model": "llama3-8b-8192",  # Modelo gratuito e extremamente rápido
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 150
+        }
         
         response = requests.post(
             url,
-            headers={"Content-Type": "application/json"},
-            json={"contents": contents},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {groq_key}"
+            },
+            json=payload,
             timeout=10
         )
 
         if response.status_code != 200:
-            raise Exception(f"Erro na API do Gemini: {response.text}")
+            raise Exception(f"Erro na API da Groq: {response.text}")
 
         dados_retorno = response.json()
-        resposta_ia = dados_retorno["candidates"][0]["content"]["parts"][0]["text"]
+        resposta_ia = dados_retorno["choices"][0]["message"]["content"]
 
     except Exception as e:
-        print(f"Erro no Gemini. Ativando fallback: {str(e)}")
+        print(f"Erro na Groq. Ativando fallback: {str(e)}")
         resposta_ia = fallback_respostas_simuladas(mensagem_usuario)
 
     # Salva a resposta final no banco e retorna
